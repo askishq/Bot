@@ -4,6 +4,7 @@ import os
 import time
 import requests
 import sys
+import shlex
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -37,20 +38,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ <b>Bot is Active!</b>\n\n"
         "To record, use the command:\n"
-        "<code>/record <link> <duration_in_seconds></code>",
+        "<code>/record &lt;link&gt; --duration &lt;seconds&gt; --caption &lt;text&gt;</code>",
         parse_mode=ParseMode.HTML
     )
 
 async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("Correct format: /record <link> <duration_in_seconds>")
+    text_args = context.args
+    if not text_args:
+        await update.message.reply_text("Correct format: /record <link> --duration <seconds> --caption <caption_text>")
         return
-    
-    url = context.args[0]
+
+    url = text_args[0]
+    duration = 60  # Default duration in seconds if not provided
+    caption_text = None
+
+    # Parse --duration and --caption from arguments
     try:
-        duration = int(context.args[1])
-    except ValueError:
-        await update.message.reply_text("Duration must be a number.")
+        if "--duration" in text_args:
+            dur_idx = text_args.index("--duration")
+            if dur_idx + 1 < len(text_args):
+                duration = int(text_args[dur_idx + 1])
+
+        if "--caption" in text_args:
+            cap_idx = text_args.index("--caption")
+            if cap_idx + 1 < len(text_args):
+                # Join remaining words as caption
+                caption_text = " ".join(text_args[cap_idx + 1:])
+    except Exception as e:
+        await update.message.reply_text(f"❌ Argument Error: {str(e)}")
         return
 
     chat_id = update.message.chat_id
@@ -80,7 +95,12 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"📤 Sending to Telegram... ({size:.2f} MB)")
                 try:
                     with open(filename, 'rb') as f:
-                        await context.bot.send_video(chat_id=chat_id, video=f, write_timeout=600)
+                        await context.bot.send_video(
+                            chat_id=chat_id, 
+                            video=f, 
+                            caption=caption_text, 
+                            write_timeout=600
+                        )
                 except Exception as e:
                     logging.error(f"Send Error: {e}")
                     await update.message.reply_text("❌ Problem sending to Telegram, uploading to cloud...")
@@ -90,7 +110,8 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"🚀 File is large ({size:.2f} MB), uploading to cloud...")
                 link = await upload_to_catbox(filename)
                 if link:
-                    await update.message.reply_text(f"✅ <b>Download Link:</b>\n{link}", parse_mode=ParseMode.HTML)
+                    cap_info = f"\n<b>Caption:</b> {caption_text}" if caption_text else ""
+                    await update.message.reply_text(f"✅ <b>Download Link:</b>\n{link}{cap_info}", parse_mode=ParseMode.HTML)
                 else:
                     await update.message.reply_text("❌ Cloud upload failed.")
             
