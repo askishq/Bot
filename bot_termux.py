@@ -4,7 +4,6 @@ import os
 import time
 import requests
 import sys
-import shlex
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -17,7 +16,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# Your new token
+# Your Bot Token
 TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -49,10 +48,10 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     url = text_args[0]
-    duration = 60  # Default duration in seconds if not provided
+    duration = 60  # Default duration
     caption_text = None
 
-    # Parse --duration and --caption from arguments
+    # Parse --duration and --caption
     try:
         if "--duration" in text_args:
             dur_idx = text_args.index("--duration")
@@ -62,7 +61,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "--caption" in text_args:
             cap_idx = text_args.index("--caption")
             if cap_idx + 1 < len(text_args):
-                # Join remaining words as caption
                 caption_text = " ".join(text_args[cap_idx + 1:])
     except Exception as e:
         await update.message.reply_text(f"❌ Argument Error: {str(e)}")
@@ -73,10 +71,23 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     status = await update.message.reply_text(f"🔴 Recording started... ({duration} seconds)")
 
-    # FFmpeg command
+    # Dynamic Headers according to domain
+    if "ncare.live" in url:
+        headers = f"User-Agent: {USER_AGENT}\r\nReferer: https://app.ncare.live/\r\n"
+    elif "bee1tv.xyz" in url:
+        headers = "User-Agent: IPTVSmarters\r\nReferer: http://tv.bee1tv.xyz:8084/\r\n"
+    elif "gpcdn.net" in url:
+        headers = "User-Agent: Mozilla/5.0 (Android) Toffee/3.0\r\nReferer: https://toffeelive.com/\r\n"
+    else:
+        headers = f"User-Agent: {USER_AGENT}\r\nReferer: https://www.google.com/\r\n"
+
+    # FFmpeg command with Reconnect options
     cmd = [
         "ffmpeg", 
-        "-headers", f"User-Agent: {USER_AGENT}\r\nReferer: https://www.google.com/\r\n",
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5",
+        "-headers", headers,
         "-i", url, 
         "-t", str(duration), 
         "-c", "copy", 
@@ -129,7 +140,7 @@ async def run_bot():
             application.add_handler(CommandHandler('start', start))
             application.add_handler(CommandHandler('record', record))
             
-            print("Bot is starting... (Termux)")
+            print("Bot is starting...")
             await application.initialize()
             await application.start()
             await application.updater.start_polling(drop_pending_updates=True)
@@ -147,4 +158,4 @@ if __name__ == '__main__':
         asyncio.run(run_bot())
     except KeyboardInterrupt:
         print("Bot stopped by user.")
-        
+            
