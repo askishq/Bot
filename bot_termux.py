@@ -1,180 +1,126 @@
-from flask import Flask
-from threading import Thread
-
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is Alive!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# Keep alive server চালু করা
-keep_alive()
-
-import asyncio
-import logging
 import os
+import subprocess
 import time
 import requests
-import sys
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telegram.constants import ParseMode
-from telegram.error import NetworkError, Conflict
 
-# Logging setup
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+# Enter your Telegram Bot Token here
+BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
-# Your Bot Token
-TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-async def upload_to_catbox(file_path):
-    url = "https://catbox.moe/user/api.php"
+def upload_to_pixeldrain(file_path):
+    """
+    Streams and uploads the file to Pixeldrain and returns the download link.
+    """
+    url = f"https://pixeldrain.com/api/file/{os.path.basename(file_path)}"
+    
     try:
         with open(file_path, 'rb') as f:
-            data = {'reqtype': 'fileupload', 'userhash': ''}
-            files = {'fileToUpload': f}
-            response = requests.post(url, data=data, files=files, timeout=600)
-            if response.status_code == 200:
-                return response.text
-    except:
-        pass
+            # Pixeldrain API uses PUT request for file uploads
+            # Timeout set to 15 minutes (900 seconds) for large files
+            response = requests.put(url, data=f, timeout=900)
+            
+        if response.status_code == 201:
+            result = response.json()
+            if result.get("success"):
+                file_id = result.get("id")
+                return f"https://pixeldrain.com/u/{file_id}"
+    except Exception as e:
+        print(f"Pixeldrain Upload Error: {e}")
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "✅ <b>Bot is Active!</b>\n\n"
-        "To record, use the command:\n"
-        "<code>/record &lt;link&gt; --duration &lt;seconds&gt; --caption &lt;text&gt;</code>",
-        parse_mode=ParseMode.HTML
+        "👋 Bot is active!\n\n"
+        "To record, use the following format:\n"
+        "`/record <M3U8_URL> <Duration_in_seconds>`",
+        parse_mode="Markdown"
     )
 
 async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text_args = context.args
-    if not text_args:
-        await update.message.reply_text("Correct format: /record <link> --duration <seconds> --caption <caption_text>")
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Correct format: `/record <URL> <duration_in_seconds>`", parse_mode="Markdown")
         return
 
-    url = text_args[0]
-    duration = 60  # Default duration
-    caption_text = None
-
-    # Parse --duration and --caption
+    url = context.args[0]
     try:
-        if "--duration" in text_args:
-            dur_idx = text_args.index("--duration")
-            if dur_idx + 1 < len(text_args):
-                duration = int(text_args[dur_idx + 1])
-
-        if "--caption" in text_args:
-            cap_idx = text_args.index("--caption")
-            if cap_idx + 1 < len(text_args):
-                caption_text = " ".join(text_args[cap_idx + 1:])
-    except Exception as e:
-        await update.message.reply_text(f"❌ Argument Error: {str(e)}")
+        duration = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Duration must be a number (e.g., 300).")
         return
 
-    chat_id = update.message.chat_id
+    status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
-    
-    status = await update.message.reply_text(f"🔴 Recording started... ({duration} seconds)")
 
-    # Dynamic Headers according to domain
-    if "ncare.live" in url:
-        headers = f"User-Agent: {USER_AGENT}\r\nReferer: https://app.ncare.live/\r\n"
-    elif "bee1tv.xyz" in url:
-        headers = "User-Agent: IPTVSmarters\r\nReferer: http://tv.bee1tv.xyz:8084/\r\n"
-    elif "gpcdn.net" in url:
-        headers = "User-Agent: Mozilla/5.0 (Android) Toffee/3.0\r\nReferer: https://toffeelive.com/\r\n"
-    else:
-        headers = f"User-Agent: {USER_AGENT}\r\nReferer: https://www.google.com/\r\n"
-
-    # FFmpeg command with Reconnect options
+    # FFmpeg Command
     cmd = [
-        "ffmpeg", 
+        "ffmpeg",
+        "-y",
+        "-loglevel", "error",
         "-reconnect", "1",
+        "-reconnect_at_eof", "1",
         "-reconnect_streamed", "1",
         "-reconnect_delay_max", "5",
-        "-headers", headers,
-        "-i", url, 
-        "-t", str(duration), 
-        "-c", "copy", 
-        "-bsf:a", "aac_adtstoasc", 
-        "-y", 
+        "-i", url,
+        "-t", str(duration),
+        "-c", "copy",
+        "-bsf:a", "aac_adtstoasc",
         filename
     ]
 
     try:
-        process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        await process.communicate()
+        subprocess.run(cmd, check=True)
         
-        if os.path.exists(filename):
-            size = os.path.getsize(filename) / (1024 * 1024)
-            if size < 48:
-                await update.message.reply_text(f"📤 Sending to Telegram... ({size:.2f} MB)")
-                try:
-                    with open(filename, 'rb') as f:
-                        await context.bot.send_video(
-                            chat_id=chat_id, 
-                            video=f, 
-                            caption=caption_text, 
-                            write_timeout=600
-                        )
-                except Exception as e:
-                    logging.error(f"Send Error: {e}")
-                    await update.message.reply_text("❌ Problem sending to Telegram, uploading to cloud...")
-                    size = 100
-            
-            if size >= 48:
-                await update.message.reply_text(f"🚀 File is large ({size:.2f} MB), uploading to cloud...")
-                link = await upload_to_catbox(filename)
-                if link:
-                    cap_info = f"\n<b>Caption:</b> {caption_text}" if caption_text else ""
-                    await update.message.reply_text(f"✅ <b>Download Link:</b>\n{link}{cap_info}", parse_mode=ParseMode.HTML)
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            file_size_bytes = os.path.getsize(filename)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+
+            # If file size is 50 MB or less, send directly to Telegram
+            if file_size_mb <= 50:
+                await status_msg.edit_text(f"📤 File size is {file_size_mb:.2f} MB. Sending directly to Telegram...")
+                with open(filename, 'rb') as video_file:
+                    await update.message.reply_video(
+                        video=video_file,
+                        caption=f"✅ **Recording Successful!**\n📏 Size: {file_size_mb:.2f} MB",
+                        parse_mode="Markdown"
+                    )
+                await status_msg.delete()
+
+            # If file size is greater than 50 MB, upload to Pixeldrain
+            else:
+                await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to Pixeldrain cloud...")
+                pixeldrain_link = upload_to_pixeldrain(filename)
+
+                if pixeldrain_link:
+                    await status_msg.edit_text(
+                        f"✅ **Recording Successful!**\n"
+                        f"📏 Size: {file_size_mb:.2f} MB\n\n"
+                        f"🔗 [Download/Watch Link]({pixeldrain_link})",
+                        parse_mode="Markdown"
+                    )
                 else:
-                    await update.message.reply_text("❌ Cloud upload failed.")
-            
+                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to Pixeldrain.")
+
+            # Remove file from server after upload
             if os.path.exists(filename):
                 os.remove(filename)
         else:
-            await status.edit_text("❌ Recording failed.")
+            await status_msg.edit_text("❌ Recording failed (0 Byte File). Please check your link.")
+
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
+        await status_msg.edit_text(f"❌ An error occurred: {str(e)}")
+        if os.path.exists(filename):
+            os.remove(filename)
 
-async def run_bot():
-    while True:
-        try:
-            application = ApplicationBuilder().token(TOKEN).build()
-            application.add_handler(CommandHandler('start', start))
-            application.add_handler(CommandHandler('record', record))
-            
-            print("Bot is starting...")
-            await application.initialize()
-            await application.start()
-            await application.updater.start_polling(drop_pending_updates=True)
-            
-            while True:
-                await asyncio.sleep(3600)
-        except (NetworkError, Conflict):
-            await asyncio.sleep(10)
-        except Exception as e:
-            print(f"Error: {e}")
-            await asyncio.sleep(5)
+def main():
+    print("Bot is starting...")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-if __name__ == '__main__':
-    try:
-        asyncio.run(run_bot())
-    except KeyboardInterrupt:
-        print("Bot stopped by user.")
-            
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("record", record))
+
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+    
