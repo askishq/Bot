@@ -1,7 +1,7 @@
 import os
-import subprocess
 import time
 import requests
+import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
@@ -69,6 +69,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
 
+    # FFmpeg Command
     cmd = [
         "ffmpeg",
         "-y",
@@ -85,7 +86,15 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        subprocess.run(cmd, check=True)
+        # Non-blocking Async Subprocess Call
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        # Wait for FFmpeg process to complete
+        await process.communicate()
         
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
             file_size_bytes = os.path.getsize(filename)
@@ -102,7 +111,10 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await status_msg.delete()
             else:
                 await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to Pixeldrain cloud...")
-                pixeldrain_link = upload_to_pixeldrain(filename)
+                
+                # Upload using thread pool so it doesn't block asyncio event loop
+                loop = asyncio.get_event_loop()
+                pixeldrain_link = await loop.run_in_executor(None, upload_to_pixeldrain, filename)
 
                 if pixeldrain_link:
                     await status_msg.edit_text(
