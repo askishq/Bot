@@ -25,10 +25,20 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
 def upload_to_pixeldrain(file_path):
-    url = f"https://pixeldrain.com/api/file/{os.path.basename(file_path)}"
+    """
+    Uploads the file to Pixeldrain using correct API format and returns the link.
+    """
+    file_name = os.path.basename(file_path)[:255]
+    url = f"https://pixeldrain.com/api/file/{file_name}"
+    
     try:
         with open(file_path, 'rb') as f:
+            # Pixeldrain allows upload with empty username and 'api' keyword or no auth for anonymous
             response = requests.put(url, data=f, timeout=900)
+            
+        print(f"Pixeldrain Response Status: {response.status_code}")
+        print(f"Pixeldrain Response Text: {response.text}")
+
         if response.status_code == 201:
             result = response.json()
             if result.get("success"):
@@ -63,12 +73,11 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
 
-    # FFmpeg Command with Force Stop Flag
     cmd = [
         "ffmpeg",
         "-y",
         "-loglevel", "error",
-        "-rw_timeout", "15000000",  # 15 seconds read timeout
+        "-rw_timeout", "15000000",
         "-i", url,
         "-t", str(duration),
         "-c", "copy",
@@ -83,7 +92,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stderr=asyncio.subprocess.PIPE
         )
         
-        # Give FFmpeg maximum duration + 15 extra seconds, then force stop if hanging
         try:
             await asyncio.wait_for(process.communicate(), timeout=duration + 15)
         except asyncio.TimeoutError:
@@ -94,7 +102,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as kill_err:
                 print(f"Error terminating process: {kill_err}")
 
-        # Check if video was saved
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
             file_size_bytes = os.path.getsize(filename)
             file_size_mb = file_size_bytes / (1024 * 1024)
