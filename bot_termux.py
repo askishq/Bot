@@ -22,19 +22,13 @@ def run_dummy_server():
 threading.Thread(target=run_dummy_server, daemon=True).start()
 # -------------------------------------------------------------
 
-# Enter your Telegram Bot Token here
 BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
 def upload_to_pixeldrain(file_path):
-    """
-    Streams and uploads the file to Pixeldrain and returns the download link.
-    """
     url = f"https://pixeldrain.com/api/file/{os.path.basename(file_path)}"
-    
     try:
         with open(file_path, 'rb') as f:
             response = requests.put(url, data=f, timeout=900)
-            
         if response.status_code == 201:
             result = response.json()
             if result.get("success"):
@@ -69,15 +63,12 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
 
-    # FFmpeg Command
+    # FFmpeg Command with Force Stop Flag
     cmd = [
         "ffmpeg",
         "-y",
         "-loglevel", "error",
-        "-reconnect", "1",
-        "-reconnect_at_eof", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "5",
+        "-rw_timeout", "15000000",  # 15 seconds read timeout
         "-i", url,
         "-t", str(duration),
         "-c", "copy",
@@ -86,16 +77,24 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        # Non-blocking Async Subprocess Call
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         
-        # Wait for FFmpeg process to complete
-        await process.communicate()
-        
+        # Give FFmpeg maximum duration + 15 extra seconds, then force stop if hanging
+        try:
+            await asyncio.wait_for(process.communicate(), timeout=duration + 15)
+        except asyncio.TimeoutError:
+            print("FFmpeg process timed out. Terminating gracefully...")
+            try:
+                process.terminate()
+                await process.wait()
+            except Exception as kill_err:
+                print(f"Error terminating process: {kill_err}")
+
+        # Check if video was saved
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
             file_size_bytes = os.path.getsize(filename)
             file_size_mb = file_size_bytes / (1024 * 1024)
@@ -112,7 +111,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to Pixeldrain cloud...")
                 
-                # Upload using thread pool so it doesn't block asyncio event loop
                 loop = asyncio.get_event_loop()
                 pixeldrain_link = await loop.run_in_executor(None, upload_to_pixeldrain, filename)
 
@@ -129,7 +127,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(filename):
                 os.remove(filename)
         else:
-            await status_msg.edit_text("❌ Recording failed (0 Byte File). Please check your link.")
+            await status_msg.edit_text("❌ Recording failed (0 Byte File). Stream link might be invalid or expired.")
 
     except Exception as e:
         await status_msg.edit_text(f"❌ An error occurred: {str(e)}")
