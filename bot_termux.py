@@ -24,28 +24,28 @@ threading.Thread(target=run_dummy_server, daemon=True).start()
 
 BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
-def upload_to_pixeldrain(file_path):
+def upload_to_gofile(file_path):
     """
-    Uploads the file to Pixeldrain using correct API format and returns the link.
+    Uploads the file to GoFile.io and returns the download link.
     """
-    file_name = os.path.basename(file_path)[:255]
-    url = f"https://pixeldrain.com/api/file/{file_name}"
-    
     try:
-        with open(file_path, 'rb') as f:
-            # Pixeldrain allows upload with empty username and 'api' keyword or no auth for anonymous
-            response = requests.put(url, data=f, timeout=900)
+        # Step 1: Get the best available GoFile server
+        server_res = requests.get("https://api.gofile.io/servers", timeout=10).json()
+        if server_res.get("status") == "ok":
+            server_name = server_res["data"]["servers"][0]["name"]
+            upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
             
-        print(f"Pixeldrain Response Status: {response.status_code}")
-        print(f"Pixeldrain Response Text: {response.text}")
-
-        if response.status_code == 201:
-            result = response.json()
-            if result.get("success"):
-                file_id = result.get("id")
-                return f"https://pixeldrain.com/u/{file_id}"
+            # Step 2: Upload the file using POST request
+            with open(file_path, 'rb') as f:
+                files = {'file': f}
+                response = requests.post(upload_url, files=files, timeout=1200) # 20 minutes timeout for large files
+                
+            res_data = response.json()
+            if res_data.get("status") == "ok":
+                download_page = res_data["data"]["downloadPage"]
+                return download_page
     except Exception as e:
-        print(f"Pixeldrain Upload Error: {e}")
+        print(f"GoFile Upload Error: {e}")
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -116,20 +116,20 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status_msg.delete()
             else:
-                await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to Pixeldrain cloud...")
+                await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to GoFile cloud...")
                 
                 loop = asyncio.get_event_loop()
-                pixeldrain_link = await loop.run_in_executor(None, upload_to_pixeldrain, filename)
+                gofile_link = await loop.run_in_executor(None, upload_to_gofile, filename)
 
-                if pixeldrain_link:
+                if gofile_link:
                     await status_msg.edit_text(
                         f"✅ **Recording Successful!**\n"
                         f"📏 Size: {file_size_mb:.2f} MB\n\n"
-                        f"🔗 [Download/Watch Link]({pixeldrain_link})",
+                        f"🔗 [Download/Watch Link]({gofile_link})",
                         parse_mode="Markdown"
                     )
                 else:
-                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to Pixeldrain.")
+                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to GoFile.")
 
             if os.path.exists(filename):
                 os.remove(filename)
@@ -151,5 +151,4 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
-    
+main()
