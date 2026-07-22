@@ -2,8 +2,25 @@ import os
 import subprocess
 import time
 import requests
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+# --- Dummy HTTP Server for Render Web Service Port Requirement ---
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running successfully!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_dummy_server, daemon=True).start()
+# -------------------------------------------------------------
 
 # Enter your Telegram Bot Token here
 BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
@@ -16,8 +33,6 @@ def upload_to_pixeldrain(file_path):
     
     try:
         with open(file_path, 'rb') as f:
-            # Pixeldrain API uses PUT request for file uploads
-            # Timeout set to 15 minutes (900 seconds) for large files
             response = requests.put(url, data=f, timeout=900)
             
         if response.status_code == 201:
@@ -38,13 +53,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
+    args = [arg for arg in context.args if arg.strip()]
+
+    if len(args) < 2:
         await update.message.reply_text("❌ Correct format: `/record <URL> <duration_in_seconds>`", parse_mode="Markdown")
         return
 
-    url = context.args[0]
+    url = args[0]
     try:
-        duration = int(context.args[1])
+        duration = int(args[1])
     except ValueError:
         await update.message.reply_text("❌ Duration must be a number (e.g., 300).")
         return
@@ -52,7 +69,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
 
-    # FFmpeg Command
     cmd = [
         "ffmpeg",
         "-y",
@@ -75,7 +91,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_size_bytes = os.path.getsize(filename)
             file_size_mb = file_size_bytes / (1024 * 1024)
 
-            # If file size is 50 MB or less, send directly to Telegram
             if file_size_mb <= 50:
                 await status_msg.edit_text(f"📤 File size is {file_size_mb:.2f} MB. Sending directly to Telegram...")
                 with open(filename, 'rb') as video_file:
@@ -85,8 +100,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
                 await status_msg.delete()
-
-            # If file size is greater than 50 MB, upload to Pixeldrain
             else:
                 await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to Pixeldrain cloud...")
                 pixeldrain_link = upload_to_pixeldrain(filename)
@@ -101,7 +114,6 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to Pixeldrain.")
 
-            # Remove file from server after upload
             if os.path.exists(filename):
                 os.remove(filename)
         else:
