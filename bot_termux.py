@@ -38,7 +38,7 @@ def upload_to_gofile(file_path):
             # Step 2: Upload the file using POST request
             with open(file_path, 'rb') as f:
                 files = {'file': f}
-                response = requests.post(upload_url, files=files, timeout=1200) # 20 minutes timeout for large files
+                response = requests.post(upload_url, files=files, timeout=1200)  # 20 minutes timeout
                 
             res_data = response.json()
             if res_data.get("status") == "ok":
@@ -151,4 +151,5 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-main()
+    main()
+        
