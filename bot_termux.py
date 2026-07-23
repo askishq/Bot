@@ -25,7 +25,7 @@ def run_dummy_server():
 threading.Thread(target=run_dummy_server, daemon=True).start()
 # -------------------------------------------------------------
 
-BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 ADMIN_ID = 5592855087  # Your Telegram User ID
 USERS_FILE = "vip_users.json"
 
@@ -57,7 +57,6 @@ def is_subscribed(user_id):
         if datetime.now() < expiry_date:
             return True
         else:
-            # Subscription expired, clean up
             del users[str_user_id]
             save_vip_users(users)
     return False
@@ -94,6 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **Welcome to the Recorder Bot!**\n\n"
         "Available Commands:\n"
         "• /record `<URL> <duration>` - Record Stream\n"
+        "• /myplan - Check Your Subscription\n"
         "• /how_to_use - Usage Instructions\n"
         "• /plans - Subscription Plans\n"
         "• /contact - Contact Support\n",
@@ -125,6 +125,45 @@ async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
+async def myplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if user_id == ADMIN_ID:
+        await update.message.reply_text(
+            f"👤 **User ID:** `{user_id}`\n"
+            f"🌟 **Status:** Admin (Unlimited Access)",
+            parse_mode="Markdown"
+        )
+        return
+
+    users = load_vip_users()
+    str_user_id = str(user_id)
+    
+    if str_user_id in users:
+        expiry_str = users[str_user_id]
+        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d %H:%M:%S")
+        
+        if datetime.now() < expiry_date:
+            time_left = expiry_date - datetime.now()
+            days_left = time_left.days
+            hours_left = time_left.seconds // 3600
+            
+            await update.message.reply_text(
+                f"👤 **User ID:** `{user_id}`\n"
+                f"✅ **Status:** Active Subscription\n"
+                f"📅 **Expires On:** {expiry_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"⏳ **Remaining Time:** {days_left} days, {hours_left} hours",
+                parse_mode="Markdown"
+            )
+            return
+
+    await update.message.reply_text(
+        f"👤 **User ID:** `{user_id}`\n"
+        f"❌ **Status:** No Active Subscription\n\n"
+        f"Use /plans to check subscription plans and contact @Turkey_series_bangla5 to subscribe.",
+        parse_mode="Markdown"
+    )
+
 # --- Admin Commands ---
 async def add_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -144,7 +183,7 @@ async def add_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users[target_user] = expiry.strftime("%Y-%m-%d %H:%M:%S")
         save_vip_users(users)
 
-        await update.message.reply_text(f"✅ Subscription granted to User `{target_user}` for {days} days!\nExpired on: {expiry.strftime('%Y-%m-%d')}", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Subscription granted to User `{target_user}` for {days} days!\nExpired on: {expiry.strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="Markdown")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
@@ -275,6 +314,7 @@ def main():
     app.add_handler(CommandHandler("contact", contact))
     app.add_handler(CommandHandler("how_to_use", how_to_use))
     app.add_handler(CommandHandler("plans", plans))
+    app.add_handler(CommandHandler("myplan", myplan))
     app.add_handler(CommandHandler("record", record))
 
     # Admin Commands
@@ -285,4 +325,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                
+        
