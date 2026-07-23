@@ -4,6 +4,7 @@ import requests
 import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -26,23 +27,30 @@ BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
 def upload_to_gofile(file_path):
     """
-    Uploads file to GoFile.io
+    Uploads large files safely by streaming directly from disk without consuming RAM.
     """
     try:
+        # Step 1: Get best available server
         server_res = requests.get("https://api.gofile.io/servers", timeout=15).json()
         if server_res.get("status") == "ok":
             server_name = server_res["data"]["servers"][0]["name"]
             upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
             
+            # Step 2: Stream upload from disk using MultipartEncoder
             with open(file_path, 'rb') as f:
-                files = {'file': (os.path.basename(file_path), f, 'video/mp4')}
-                response = requests.post(upload_url, files=files, timeout=1800)
+                m = MultipartEncoder(
+                    fields={'file': (os.path.basename(file_path), f, 'video/mp4')}
+                )
+                headers = {'Content-Type': m.content_type}
+                response = requests.post(upload_url, data=m, headers=headers, timeout=1800)
                 
             res_data = response.json()
             if res_data.get("status") == "ok":
                 return res_data["data"]["downloadPage"]
+            else:
+                print(f"GoFile Response Error: {res_data}")
     except Exception as e:
-        print(f"GoFile Upload Exception: {e}")
+        print(f"GoFile Exception: {e}")
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,10 +75,10 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Duration must be a number (e.g., 300).")
         return
 
-    status_msg = await update.message.reply_text("⏳ Recording started (Optimized for fast upload)...")
+    status_msg = await update.message.reply_text("⏳ Recording started...")
     filename = f"rec_{int(time.time())}.mp4"
 
-    # FFmpeg command with optimized encoding to reduce file size without losing much quality
+    # Fast and original stream copying (Original Small File Size)
     cmd = [
         "ffmpeg",
         "-y",
@@ -78,11 +86,8 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "-rw_timeout", "15000000",
         "-i", url,
         "-t", str(duration),
-        "-c:v", "libx264",
-        "-crf", "28",
-        "-preset", "ultrafast",
-        "-c:a", "aac",
-        "-b:a", "128k",
+        "-c", "copy",
+        "-bsf:a", "aac_adtstoasc",
         filename
     ]
 
@@ -94,7 +99,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            await asyncio.wait_for(process.communicate(), timeout=duration + 60)
+            await asyncio.wait_for(process.communicate(), timeout=duration + 30)
         except asyncio.TimeoutError:
             print("FFmpeg process timed out. Terminating gracefully...")
             try:
@@ -133,7 +138,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
                 else:
-                    await status_msg.edit_text("❌ Cloud upload failed.")
+                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to GoFile.")
 
             if os.path.exists(filename):
                 os.remove(filename)
@@ -156,4 +161,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                
+                      
