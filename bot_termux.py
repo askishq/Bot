@@ -101,7 +101,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📩 **Contact Admin:** @Turkey_series_bangla5", parse_mode="Markdown")
+    await update.message.reply_text("📩 **Contact Admin:** @ishqeask", parse_mode="Markdown")
 
 async def how_to_use(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -121,7 +121,7 @@ async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🗓 **7 Days:** 100 ৳ / ₹\n"
         "🗓 **30 Days:** 300 ৳ / ₹\n\n"
         "💳 **Payment Methods:** Bkash, Nagad, Binance\n\n"
-        "📩 Contact @Turkey_series_bangla5 to buy a subscription!"
+        "📩 Contact @ishqeask to buy a subscription!"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
