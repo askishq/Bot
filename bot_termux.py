@@ -25,7 +25,7 @@ def run_dummy_server():
 threading.Thread(target=run_dummy_server, daemon=True).start()
 # -------------------------------------------------------------
 
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 ADMIN_ID = 5592855087  # Your Telegram User ID
 USERS_FILE = "vip_users.json"
 
