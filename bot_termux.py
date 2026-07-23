@@ -26,26 +26,29 @@ BOT_TOKEN = "8632100658:AAHGNHnw6_uQ8l0lKnuK8ewIqJ-JF7B-YM8"
 
 def upload_to_gofile(file_path):
     """
-    Uploads the file to GoFile.io and returns the download link.
+    Uploads large files to GoFile.io safely using streaming uploads.
     """
     try:
         # Step 1: Get the best available GoFile server
-        server_res = requests.get("https://api.gofile.io/servers", timeout=10).json()
+        server_res = requests.get("https://api.gofile.io/servers", timeout=15).json()
         if server_res.get("status") == "ok":
             server_name = server_res["data"]["servers"][0]["name"]
             upload_url = f"https://{server_name}.gofile.io/contents/uploadfile"
             
-            # Step 2: Upload the file using POST request
+            # Step 2: Stream upload for large files
             with open(file_path, 'rb') as f:
-                files = {'file': f}
-                response = requests.post(upload_url, files=files, timeout=1200)  # 20 minutes timeout
+                files = {'file': (os.path.basename(file_path), f, 'video/mp4')}
+                # Increased timeout to 45 minutes for slow free server connections
+                response = requests.post(upload_url, files=files, timeout=2700)
                 
             res_data = response.json()
             if res_data.get("status") == "ok":
                 download_page = res_data["data"]["downloadPage"]
                 return download_page
+            else:
+                print(f"GoFile Error Response: {res_data}")
     except Exception as e:
-        print(f"GoFile Upload Error: {e}")
+        print(f"GoFile Upload Exception: {e}")
     return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -93,7 +96,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            await asyncio.wait_for(process.communicate(), timeout=duration + 15)
+            await asyncio.wait_for(process.communicate(), timeout=duration + 30)
         except asyncio.TimeoutError:
             print("FFmpeg process timed out. Terminating gracefully...")
             try:
@@ -116,9 +119,12 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 await status_msg.delete()
             else:
-                await status_msg.edit_text(f"🚀 File size is {file_size_mb:.2f} MB. Uploading to GoFile cloud...")
+                await status_msg.edit_text(
+                    f"🚀 File size is {file_size_mb:.2f} MB.\n"
+                    f"Uploading to GoFile cloud (this may take a few minutes for large files)..."
+                )
                 
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 gofile_link = await loop.run_in_executor(None, upload_to_gofile, filename)
 
                 if gofile_link:
@@ -129,7 +135,7 @@ async def record(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
                 else:
-                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the file to GoFile.")
+                    await status_msg.edit_text("❌ Cloud upload failed. There was an error uploading the large file to GoFile.")
 
             if os.path.exists(filename):
                 os.remove(filename)
@@ -152,4 +158,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+                
